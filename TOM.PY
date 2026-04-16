@@ -1,6 +1,7 @@
 import threading
 import time
 import queue
+import random
 
 #Rever talvez n precise
 # class event:
@@ -51,61 +52,80 @@ import queue
 # If the acknowledgment counter reaches the total number of nodes, remove the delivered message from the local_queue.
 
 #GLOBAL VARIABLES
-__TRANSACTIONS__ = 2
+__TRANSACTIONS__ = 10
 
 class transaction:
- """
-    Class referida a abtração principal da Réplica -> slide glauco
-
- """
- def __init__(self, 
-                id:str,
-                transacoes:list
-        ):
-  #porem precisaria dispor a maneira de comparação (?) para por naquela etapa do relogio de lamport (?)
-  #acho que podemos usar uma lista mesmo so chamar de fila/queue(tantofaz) como nome e fazer o sort depois nessa parte de comparacao
-  self.id = id 
-  self.clock = 0
-  self.queue = [] # usar queue ou list mesmo ?
-  self.acknowledged_counter = {}
-  self.transacoes = transacoes
+    def __init__(self, 
+                    id:str,
+                    transacoes:list
+            ):
+        #porem precisaria dispor a maneira de comparação (?) para por naquela etapa do relogio de lamport (?)
+        #acho que podemos usar uma lista mesmo so chamar de fila/queue(tantofaz) como nome e fazer o sort depois nessa parte de comparacao
+        self.id = id 
+        self.clock = 0
+        self.queue = [] # usar queue ou list mesmo ?
+        self.acks = {}
+        self.transacoes = transacoes
+        self.lock = threading.Lock()
   
-# ELE POEM +! NO TIMESTAMP PQ NAO USA TEMPO ALGUM É UM CONTADOR QUE AUMENTA
- def multicast(self, message):
-        self.clock += 1
-        timestamp = self.clock
-        for p in self.processes:
-            p.on_receive_msg(timestamp, self.pid, message)
+    # ELE POEM +! NO TIMESTAMP PQ NAO USA TEMPO ALGUM É UM CONTADOR QUE AUMENTA
+    def multicast(self, message):
+            with self.lock:
+                self.clock += 1
+                timestamp = self.clock
+                print(f"P{self.id} deseja realizar a operação de: {message}")
+            for p in self.transacoes:
+                print(f"P{self.id} is casting to : P{p.id}, on time: {timestamp}")
+                p.on_receive_msg(timestamp, self.id, message)
+    def on_receive_msg(self, timestamp, sender_id, message):
+        time.sleep(random.randint(a=1,b=3))
+        with self.lock:
+                self.clock = max(self.clock, timestamp) + 1
+                msg_id = (timestamp, sender_id)
 
-def on_receive_msg(self, timestamp, sender_id, message):
-    self.clock = max(self.clock, timestamp) + 1
-    msg_id = (timestamp, sender_id)
+                # adiciona na fila e ordena
+                print(f"P{self.id} received {message} from P{sender_id} | msg_ts={timestamp} | local_clock={self.clock}")
+                self.queue.append((timestamp, sender_id, message))
+                self.queue.sort()
 
-    self.queue.append((timestamp, sender_id, message))
-    self.queue.sort()
+                if msg_id not in self.acks:
+                    self.acks[msg_id] = set()
+                self.acks[msg_id].add(self.id)
 
-    self.acks[msg_id] = set([self.pid])
+        # send ACK to all
+        for p in self.transacoes:
+            p.on_receive_ack(msg_id, self.id)
 
-    # send ACK to all
-    for p in self.processes:
-        p.on_receive_ack(msg_id, self.pid)
+    def on_receive_ack(self, msg_id, sender):
+        with self.lock:
+                if msg_id not in self.acks:
+                    self.acks[msg_id] = set()
 
-def on_receive_ack(self, msg_id, sender):
-    if msg_id not in self.acks:
-        self.acks[msg_id] = set()
-    self.acks[msg_id].add(sender)
-    self.try_deliver()
+                self.acks[msg_id].add(sender)
+        self.try_deliver()
 
-def try_deliver(self):
-    while self.queue:
-        timestamp, sender_id, message = self.queue[0]
-        msg_id = (timestamp, sender_id)
+    def try_deliver(self):
+        with self.lock:
+                while self.queue:
+                    timestamp, sender_id, message = self.queue[0]
+                    msg_id = (timestamp, sender_id)
 
-        if len(self.acks[msg_id]) == len(self.processes):
-            print(f"P{self.pid} delivers: {message}")
-            self.queue.pop(0)
-        else:
-            break
+                    if len(self.acks.get(msg_id, [])) == len(self.transacoes):
+                        print(f"P{self.id} delivers: {message}")
+                        self.queue.pop(0)
+                    else:
+                        break
 
 
- 
+# Create processes
+processes = []
+for i in range(__TRANSACTIONS__):
+    processes.append(transaction(i, None))
+
+# Assign process list
+for p in processes:
+    p.transacoes = processes
+
+# Simulate concurrent sends
+for i in range(len(processes)):
+    threading.Thread(target=processes[i].multicast, args=(f"m_{i}",)).start()
